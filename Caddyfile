@@ -1,0 +1,107 @@
+{
+    # Domaine à configurer par l'hébergeur au moment de l'installation, via variable d'env ou édition directe.
+
+    # Une connexion HTTPS par IP brute (pas de nom de domaine) n'envoie généralement aucun SNI —
+    # sans ça Caddy ne sait pas quel certificat/site servir. `default_sni` fait retomber ces
+    # connexions sur le site "domaine principal" plutôt que d'échouer la poignée de main TLS.
+    #
+    # La valeur suit `DOMAIN` et n'est plus la constante `localhost` : c'était déjà l'intention du
+    # commentaire ci-dessus (« le site domaine principal »), mais en production le SNI `localhost`
+    # ne correspondait à aucun bloc nommé. Depuis que l'attrape-tout émet des certificats à la
+    # demande (voir plus bas), cette imprécision aurait un coût réel — une demande de certificat
+    # pour `localhost` à chaque accès par IP.
+    default_sni {$DOMAIN:localhost}
+
+    # Marque blanche : un revendeur sert le portail à ses clients sur son propre domaine, inconnu
+    # au démarrage de Caddy. `on_demand` fait obtenir le certificat à la première poignée de main
+    # sur ce nom.
+    #
+    # `ask` n'est pas une option de confort, c'est ce qui rend le mécanisme utilisable : sans lui,
+    # n'importe quel nom pointé vers cette instance déclencherait une demande ACME, et une poignée
+    # de domaines inexistants suffirait à faire limiter l'instance entière par Let's Encrypt.
+    # L'API ne répond `200` que pour un domaine dont la propriété a été prouvée par enregistrement
+    # DNS (`ResellerDomain.verifiedAt`).
+    #
+    # Appel en clair vers le conteneur `api` sur le réseau Docker interne : cette question se pose
+    # pendant la poignée de main TLS, la faire repasser par Caddy lui-même serait circulaire.
+    on_demand_tls {
+        ask http://api:3001/api/v1/reseller-domains/tls-check
+    }
+
+    # `docker-compose.yml` ne publie que 443/tcp, pas 443/udp — sans ça, HTTP/3 (QUIC) annoncé
+    # via l'en-tête Alt-Svc pousse le navigateur à tenter une connexion UDP qui n'aboutit jamais,
+    # ce qui peut donner l'impression qu'une requête reste bloquée avant l'abandon du navigateur.
+    servers {
+        protocols h1 h2
+    }
+}
+
+# Back-office sur un sous-domaine dédié plutôt qu'un chemin : web-admin utilise des chemins absolus
+# (fetch("/api/..."), router.push("/login")) sans basePath Next.js, donc un préfixe de chemin casserait
+# la navigation et les appels internes. L'hébergeur doit pointer admin.<DOMAIN> vers ce serveur en DNS.
+#
+# `tls {$TLS_MODE:internal}` prend deux valeurs, jamais vide :
+#   - `internal` (défaut) en dev/test avec un DOMAIN factice (ex. opbs.test) ou localhost : Caddy
+#     signe lui-même. Sans ça il tente l'ACME public, qui rejette tout domaine sans TLD public
+#     réel ("does not end with a valid public suffix").
+#   - une adresse e-mail en prod avec un vrai DOMAIN public : `tls <email>` déclenche l'émission
+#     d'un certificat Let's Encrypt, l'adresse servant aux avis d'expiration.
+# Ne jamais laisser la variable vide : `tls` sans argument est une erreur de syntaxe et Caddy
+# refuse de démarrer en boucle, rendant toute la stack injoignable derrière le proxy.
+admin.{$DOMAIN:localhost} {
+    tls {$TLS_MODE:internal}
+    reverse_proxy web-admin:3002
+}
+
+# Sous-domaine dédié, même raisonnement que admin.<DOMAIN> ci-dessus. Volontairement un service
+# à part (`status-page`) plutôt qu'une route de plus sur web-portal : il ne dépend ni de l'API ni
+# de Postgres/Redis au moment de la requête, seulement du volume `status_snapshot` écrit par le
+# worker — donc il reste debout même si le reste de la stack est en panne, ce qui est précisément
+# le moment où cette page sert à quelque chose.
+status.{$DOMAIN:localhost} {
+    tls {$TLS_MODE:internal}
+    reverse_proxy status-page:3004
+}
+
+{$DOMAIN:localhost} {
+    tls {$TLS_MODE:internal}
+    # Seul /api/v1/* (préfixe global NestJS) va au backend : web-portal a ses propres routes
+    # sous /api/* (login, checkout, orders, ...) qui doivent rester gérées par Next.js.
+    handle /api/v1/* {
+        reverse_proxy api:3001
+    }
+    handle {
+        reverse_proxy web-portal:3003
+    }
+}
+
+# Catch-all temporaire pour accès direct par IP (sans nom de domaine configuré côté client).
+# `default_sni` (ci-dessus) résout le certificat à présenter pour la poignée de main TLS ; ce
+# bloc gère le routage HTTP ensuite, pour les requêtes dont le Host/:authority ne correspond à
+# aucun bloc nommé (ex: l'IP brute elle-même). Pratique pour un test rapide ; un vrai déploiement
+# doit toujours passer par les blocs nommés ci-dessus (DOMAIN / admin.DOMAIN). À retirer une fois
+# un nom de domaine en place.
+#
+# Le HTTP simple redirige vers HTTPS plutôt que de servir le contenu directement : un cookie de
+# session `Secure` ne se pose jamais en clair, et les navigateurs modifient le DOM des champs
+# mot de passe sur une page non sécurisée avant l'hydratation React, cassant l'app (erreur
+# d'hydratation React #418) — donc jamais d'HTTP simple pour une page avec un formulaire de login.
+http:// {
+    redir https://{host}{uri} permanent
+}
+
+# Attrape-tout : accès par IP brute, et surtout **les domaines des revendeurs** (marque blanche),
+# qui ne peuvent pas être écrits ici puisqu'ils sont déclarés en base après le démarrage.
+#
+# C'est le seul bloc qui porte `on_demand` — les blocs nommés ci-dessus ont leur certificat par les
+# voies normales, et leur en faire obtenir un à la demande n'ajouterait qu'un aller-retour vers
+# l'API sur le chemin de la première connexion.
+#
+# Le portail sert la bonne marque en lisant l'en-tête `Host` : il n'y a rien à router
+# différemment ici, un seul et même service répond pour tous les domaines de revendeurs.
+:443 {
+    tls {$TLS_MODE:internal} {
+        on_demand
+    }
+    reverse_proxy web-portal:3003
+}
