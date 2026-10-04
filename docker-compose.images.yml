@@ -63,6 +63,9 @@ services:
       JWT_SSO_TICKET_SECRET: ${JWT_SSO_TICKET_SECRET}
       WEB_PORTAL_URL: https://${DOMAIN:-localhost}
       WEB_ADMIN_URL: https://admin.${DOMAIN:-localhost}
+      # Même dérivation que la route `status.<DOMAIN>` du Caddyfile : lue par les thèmes
+      # (`ThemeShellContext.statusPageUrl`) pour un lien de pied de page, jamais par autre chose.
+      STATUS_PAGE_URL: https://status.${DOMAIN:-localhost}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       SMTP_HOST: ${SMTP_HOST}
@@ -158,6 +161,8 @@ services:
         condition: service_healthy
     environment:
       API_URL: http://api:3001
+      # Origine du panel, seule autorisée à afficher le portail dans un cadre (aperçu de thème).
+      WEB_ADMIN_URL: https://admin.${DOMAIN:-localhost}
     expose:
       - "3003"
     ports:

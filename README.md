@@ -68,6 +68,7 @@ docker compose -p opbs -f docker-compose.images.yml --env-file .env up -d
 | `<votredomaine>` | `127.0.0.1:3003` (espace client), sauf `/api/v1/*` → `127.0.0.1:3001` |
 | `admin.<votredomaine>` | `127.0.0.1:3002` |
 | `status.<votredomaine>` | `127.0.0.1:3004` |
+| domaines de vos revendeurs | même partage que `<votredomaine>` : `/api/v1/*` → `127.0.0.1:3001`, le reste → `127.0.0.1:3003` |
 
 Exemple minimal côté nginx, pour l'espace client (le préfixe `/api/v1/` va à l'API, tout le reste
 au portail — c'est le même partage que fait le `Caddyfile` fourni) :
@@ -82,6 +83,10 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+Les domaines de revendeurs (marque blanche) suivent le même partage : leurs pages demandent la
+feuille, les polices et les images du thème sous `/api/v1/` sur leur propre domaine. Un bloc qui les
+enverrait tout entiers au portail servirait des pages sans thème.
 
 Le TLS est alors à votre charge (certbot ou équivalent), et `TLS_MODE` n'a plus d'effet. Deux
 points à ne pas manquer : relayez bien `X-Forwarded-For`, dont dépendent la détection de connexion

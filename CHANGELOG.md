@@ -11,6 +11,134 @@ un MAJEUR.
 
 ## [Non publié]
 
+### Ajouté
+
+- **Réglages de thème liés à la feuille de style** (contrat `0.33.0`). Un réglage de thème peut
+  remplacer un token (`token`) ou poser une variable CSS du thème (`cssVar`) ; nouveaux types
+  `color` (sélecteur + contraste) et `order` (ordre des blocs, liste déplaçable), curseur pour un
+  nombre borné, champs conditionnels (`visibleWhen`) et palettes (`options[].sets`). Les réglages
+  s'insèrent entre les tokens du thème et la marque de Paramètres › Identité, qui garde le dernier
+  mot — le panel signale le champ ainsi remplacé. Le thème « Argile » passe de 25 à 78 réglages :
+  palettes, couleurs, arrondi, densité, largeur, polices, style de barre, dispositions du hero et
+  des pages de connexion, ordre des blocs de l'accueil, colonnes, catalogue en liste, pied compact
+  ou encre, liens sociaux. Les thèmes et modules tiers doivent déclarer `^0.33.0`.
+- **Contenu d'hébergeur dans un thème** (contrat `0.33.0`) : réglages de type `list` (éléments
+  composés, ajoutés et ordonnés au panel) et textes `localized` (une valeur par langue, saisie
+  par onglets ; le portail relaie la langue du visiteur aux rendus publics). « Argile » 1.2.0
+  gagne un bandeau d'annonce, des avis clients, des logos partenaires et une FAQ, et tous ses
+  textes sont traduisibles. Une liste peut porter le contenu d'origine du thème (`defaultValue`
+  en JSON) : « Argile » 1.3.0 rend ainsi modifiables ses six contenus jusque-là écrits en dur —
+  ligne de confiance, étapes du déroulé, rubriques de l'espace client, cartes de ressources,
+  points du bandeau de fin — avec choix d'icône par élément, et le pied de page accepte trois
+  colonnes de liens libres.
+- **Thèmes traduisibles** (contrat `0.33.0`). Un thème livre ses libellés dans `locales/<langue>.json`
+  et les lit sous `t` ; la langue du visiteur s'applique, avec repli clé par clé sur celle de
+  l'instance. « Argile » 1.5.0 est traduit en français, anglais et allemand (120 libellés, contenus livrés compris) — ses
+  pages ne mélangent plus ses propres textes, jusque-là francophones, avec ceux du noyau, eux
+  traduits. Les titres et accroches du panier, des domaines, de l'aide, de l'inscription et des
+  cinq documents légaux deviennent en outre des réglages.
+- **Mode sombre** (contrat `0.33.0`). Un thème déclare sa palette sombre (`theme.tokensDark`) et
+  l'hébergeur choisit l'apparence du site : toujours claire, toujours sombre, ou selon le système
+  du visiteur. Les couleurs de marque de Paramètres › Identité s'appliquent aux deux palettes, et
+  les couleurs de texte lisibles sur un aplat sont recalculées pour chacune. « Argile » 1.4.0
+  livre sa palette « nuit » et expose ses sept couleurs sombres.
+- **Réglages de thème : images, longueurs maximales et captures** (contrat `0.28.0`). Un réglage
+  peut être de type `image` (thèmes seulement) et déclarer `maxLength` ; un thème peut livrer une
+  capture d'écran (`theme.screenshot`) pour le sélecteur. Le thème « Argile » déclare son image
+  d'accueil en `image` et borne ses textes. Les thèmes tiers doivent déclarer `^0.28.0`. Une
+  adresse de réglage qui n'est ni `https:`, ni `http:`, ni un chemin du site n'atteint jamais un
+  gabarit : Liquid échappe le HTML, pas le protocole, et un `javascript:` dans un `href`
+  s'exécuterait.
+- **Les réglages d'un thème passent par un brouillon.** Chaque modification est enregistrée en
+  brouillon pendant la saisie, invisible des visiteurs, puis publiée (ou abandonnée) d'un clic. Deux
+  administrateurs sur la même page ne s'écrasent plus : le second est prévenu que le brouillon a
+  changé. Publication et abandon sont inscrits au journal d'audit.
+- **Aperçu d'un thème avant de le publier ou de l'appliquer.** La page d'un thème montre la vitrine
+  dans un cadre, avec le brouillon en cours : choix de la page (accueil, catalogue, connexion…) et de
+  la largeur (mobile, tablette, bureau), rechargement après chaque enregistrement. Fonctionne aussi
+  pour un thème qui n'est pas appliqué, depuis le lien « Aperçu » du sélecteur. Les visiteurs ne
+  voient jamais le brouillon : l'aperçu passe par un jeton lié à la session du panel, revérifié à
+  chaque page (compte actif, session ouverte, droit `themes.write`).
+- **Téléversement d'images dans les réglages de thème.** Un réglage `image` propose « Téléverser /
+  Remplacer / Retirer » : PNG, JPEG ou WebP, 5 Mo au plus. Le type est vérifié sur les octets (un
+  fichier renommé n'y change rien, le SVG est refusé) et les métadonnées — position GPS d'une photo
+  de téléphone, commentaires — sont retirées avant stockage. Les images vivent en base (table
+  `theme_media`), donc dans les sauvegardes `backup.sh` existantes, dans la limite de 200 fichiers et
+  150 Mo ; celles que plus aucun réglage ne cite sont supprimées 24 h après leur envoi, lors d'une
+  publication ou d'un abandon.
+- **Vignettes dans le sélecteur de thèmes.** Chaque carte montre la capture du thème (`classic`,
+  `encre`, « Argile » et « Kiosque » en livrent une) ou, à défaut, une page miniature dessinée avec
+  ses propres couleurs, son rayon et sa police de titres. Un badge signale un brouillon non publié.
+  La description de « Classique » disait encore « sombre et violet » : elle décrit désormais le
+  thème clair qu'il est devenu.
+- **Formulaire de réglages plus lisible.** Les cases « Activé / Désactivé » deviennent des
+  interrupteurs, une image s'affiche en vignette (et le dit quand l'adresse ne mène à rien), un texte
+  borné montre son compteur. Sur la page d'un thème, chaque champ modifié porte une pastille « Non
+  publié » et un bouton pour revenir à sa valeur d'origine, et une barre de sections mène à chaque
+  groupe. Interrupteur, vignette et compteur valent aussi pour la configuration des modules.
+- **Un thème a sa page de configuration** (contrat `0.27.0`). Il déclare `theme.settings` dans son
+  manifeste — les mêmes `ConfigField` que les modules, avec un `group` pour les répartir en
+  sections et un nouveau type `url` pour les images — et le panel en rend le formulaire dans
+  Paramètres › Système › Thèmes › Configurer. Les valeurs arrivent aux gabarits sous `settings`,
+  dans l'enveloppe comme dans chaque vue. Jusqu'ici un thème n'était paramétrable que par ses
+  couleurs : tout le reste — titres, accroches, libellés de boutons, image de présentation, blocs à
+  montrer ou non — vivait en dur dans ses gabarits, et un hébergeur qui voulait changer une phrase
+  devait éditer un `.liquid` par SSH, pour le perdre à la mise à jour suivante du thème.
+  `password` et `provider` y sont refusés : un thème n'exécute aucun code, il n'a ni secret à garder
+  ni fournisseur à piloter.
+- **Le thème d'exemple « Argile » déclare 25 réglages**, répartis en quatre sections (Navigation,
+  Accueil — en-tête, Accueil — sections, Présentation) : de quoi refaire sa vitrine sans ouvrir un
+  fichier.
+- **Le contexte d'un thème porte le catalogue là où il en a besoin** (contrat `0.26.0`, purement
+  additif). La page d'accueil reçoit `sections`, `bundles` et `commitments` ; l'enveloppe reçoit
+  `catalogFamilies` — **l'arbre des catégories publiées**, chacune avec ses sous-familles, ses
+  offres, son prix d'appel et le compte de sa branche —, de quoi écrire le menu déroulant à
+  colonnes qu'a toute vitrine d'hébergeur ; chaque section porte `fromPriceFormatted`, le prix de
+  son offre la moins chère. Sans eux, un gabarit ne pouvait annoncer une offre ou un prix de départ
+  qu'en l'écrivant en dur — c'est-à-dire en publiant le catalogue d'un autre hébergeur que celui
+  qui installe le thème. `fromPriceFormatted` est calculé par le noyau parce qu'un gabarit ne le
+  peut pas : les prix lui arrivent déjà mis en forme, et trier des chaînes place « 11,88 » avant
+  « 2,39 ».
+- **Thème d'exemple « Argile »** (`examples/extensions/theme-argile`) : colonne unique, cartes
+  arrondies, navigation en pilule flottante à deux étages avec menu des familles. Couvre les 12
+  vues de la vitrine et les 8 pages d'authentification, sans une seule couleur littérale dans sa
+  feuille — tout descend des tokens, donc la couleur de marque du panel recolore la page entière.
+- `pnpm check-extension` refuse un `{% render %}` / `{% include %}` dont la cible n'existe pas dans
+  le thème. Le chemin part de la racine du thème, pas du gabarit qui l'écrit : en relatif, LiquidJS
+  lève une erreur, le noyau retombe sur son écran React et la page reste parfaitement
+  présentable — sans qu'une ligne du thème ne s'affiche, et sans que rien ne le signale.
+### Changé
+- **Le portail ne peut plus être affiché dans un cadre**, sauf par le panel
+  (`Content-Security-Policy: frame-ancestors 'self' <WEB_ADMIN_URL>`). N'importe quel site pouvait
+  jusqu'ici l'encadrer (détournement de clic). `WEB_ADMIN_URL` est désormais transmise au service
+  `web-portal` par `infra/docker-compose.yml`, avec la même valeur par défaut que pour l'API : aucune
+  action requise sur une installation standard.
+### Corrigé
+- **`pnpm check-mirrors` ne regardait plus qu'une partie des fichiers.** Son contrôle
+  `LocalizedText` retirait les littéraux de chaîne **avant** les commentaires : un backtick écrit
+  dans un commentaire — `` `settings` `` dans une phrase, ce que font tous les en-têtes de ce dépôt
+  — entrait dans l'appariement des littéraux gabarits, et l'expression avalait des dizaines de
+  lignes de code réel. Le contrôle passait sur un fichier amputé sans jamais le dire, et masquait
+  ainsi un accès `.fr` présent depuis plusieurs commits. Remplacé par un balayage caractère par
+  caractère, qui sait à chaque position s'il est dans du code, une chaîne ou un commentaire.
+- **Les liens visités ne repeignent plus les boutons.** `components.css` posait
+  `a, a:visited { color: var(--brand-color-accent) }` : une pseudo-classe pesant autant qu'une
+  classe, `a:visited` (0,1,1) l'emportait sur `.nw-pagination__link`, sur `.nw-button--primary` et
+  sur les classes de bouton d'un thème. Tout bouton rendu par un `<a>` virait donc à la couleur
+  d'accent — mais seulement chez les visiteurs ayant déjà ouvert la page de destination, ce qui
+  rendait le défaut invisible sur un profil neuf et introuvable au navigateur, `getComputedStyle`
+  mentant sur `:visited` pour la vie privée. La règle ne vise plus que les liens sans classe
+  (`a:not([class])`), ce qu'elle avait toujours prétendu faire.
+- **Les ressources d'un thème ne restaient plus figées une heure.** `stylesheet.css` et `script.js`
+  étaient servis avec `max-age=3600` et aucun validateur : un thème corrigé sur le serveur
+  continuait de s'afficher dans son état d'avant, le navigateur ne revalidant pas une seule fois.
+  Désormais un `ETag` et une durée courte — le navigateur revalide et reçoit `304` tant que rien
+  n'a bougé.
+- **Les îlots placés dans l'enveloppe d'un thème sont montés sur les pages d'authentification.**
+  `AuthShell` injectait l'en-tête et le pied en HTML brut : le sélecteur de langue et le bouton de
+  consentement qu'un thème y plaçait n'étaient jamais montés (emplacement vide, rien en console), et
+  le repli du sélecteur s'ajoutait sans condition — donc en double.
+
 ## [1.0.0] - 2026-09-06
 
 Première version **publiée** : les cinq images sont sur `ghcr.io/friirus/opbs-*` et les fichiers
@@ -138,6 +266,22 @@ signalée comme telle.
   pleine.** Utilise `ctx.storage.keys(prefix)` (SDK 0.29.0) pour compter les ports déjà tenus dans
   `offeringsFor` et refuser de vendre l'option plutôt que de la laisser échouer, facturée, à
   `onAttach`.
+
+- **Trois documents légaux publiables** : mentions légales, politique de remboursement et politique
+  de cookies (Paramètres › Légal), à côté des CGV et de la politique de confidentialité qui
+  existaient déjà. Servis sur `/legal/notice`, `/legal/refund` et `/legal/cookies`, thémables comme
+  les autres pages. Les mentions légales et la politique de cookies sont proposées pré-remplies —
+  les premières depuis la fiche société déjà saisie, la seconde depuis les traceurs que le produit
+  dépose réellement. La politique de remboursement ne l'est pas : c'est un engagement commercial,
+  et le produit ne promet rien au nom de l'hébergeur.
+- **Pied de page légal.** La vitrine et l'espace client n'en avaient aucun : les documents publiés
+  n'étaient atteignables qu'en tapant leur URL. Ne montre que les documents réellement rédigés, et
+  l'onglet Légal signale à l'hébergeur ceux qui manquent.
+- **Engagements de service** (Paramètres › Légal) : disponibilité, rétention des sauvegardes et
+  délai de réponse du support, affichés par un thème qui les reprend. Laissés vides, ils ne sont
+  pas publiés.
+- **Lien d'évitement** au clavier sur les deux applications, et styles de focus dans le design
+  system partagé — le panel en avait, la vitrine et l'espace client n'en avaient aucun.
 
 ### Modifié
 

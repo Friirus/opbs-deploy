@@ -97,11 +97,19 @@ http:// {
 # voies normales, et leur en faire obtenir un à la demande n'ajouterait qu'un aller-retour vers
 # l'API sur le chemin de la première connexion.
 #
-# Le portail sert la bonne marque en lisant l'en-tête `Host` : il n'y a rien à router
-# différemment ici, un seul et même service répond pour tous les domaines de revendeurs.
+# Le portail sert la bonne marque en lisant l'en-tête `Host` : un seul et même service répond pour
+# tous les domaines de revendeurs. Le partage entre API et portail, lui, doit être le même que sur
+# le domaine principal : les pages y demandent `/api/v1/*` sur leur propre domaine — feuille, script,
+# polices et images du thème, médias téléversés. Sans ce `handle`, ces requêtes tombaient sur le
+# portail et répondaient 404 : un domaine revendeur perdait la feuille du thème et ses polices.
 :443 {
     tls {$TLS_MODE:internal} {
         on_demand
     }
-    reverse_proxy web-portal:3003
+    handle /api/v1/* {
+        reverse_proxy api:3001
+    }
+    handle {
+        reverse_proxy web-portal:3003
+    }
 }
