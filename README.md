@@ -43,6 +43,44 @@ administrateur, renseigner le branding et connecter votre infrastructure de prov
 (Proxmox par défaut ; d'autres hyperviseurs/panels via un module tiers, voir la documentation des
 extensions du dépôt principal).
 
+## Paiement : les événements à souscrire chez la passerelle
+
+Stripe et PayPal n'envoient à votre instance que les événements que vous avez cochés en créant
+l'endpoint (Stripe) ou le webhook (PayPal). Un événement non coché n'arrive jamais, **sans aucune
+erreur** ni de leur côté ni du nôtre : la facture reste simplement dans l'état où elle était. Ceux
+qui suivent sont les seuls que l'instance traduit ; les autres sont ignorés, les cocher ne coûte
+rien.
+
+Stripe, endpoint `https://<votredomaine>/api/v1/webhooks/payments/stripe` (Développeurs › Webhooks) :
+
+| Événement | Effet dans l'instance |
+|---|---|
+| `checkout.session.completed` | règle la facture ou la commande payée sur la page Stripe, ou enregistre une carte |
+| `payment_intent.succeeded` | règle un renouvellement automatique, en particulier un prélèvement SEPA parti « en cours » |
+| `payment_intent.payment_failed` | marque ce prélèvement échoué, le recouvrement le reprend à son prochain passage |
+| `charge.dispute.created` | passe la facture en « contestée » |
+| `charge.dispute.closed` | litige gagné : la facture redevient réglée ; perdu : elle reste contestée, à traiter |
+| `refund.created` | enregistre un remboursement fait depuis le tableau de bord Stripe |
+| `refund.updated` | même remboursement, une fois les fonds partis (SEPA, ACH) |
+
+PayPal, webhook vers `https://<votredomaine>/api/v1/webhooks/payments/paypal` (Apps & Credentials) :
+
+| Événement | Effet dans l'instance |
+|---|---|
+| `CHECKOUT.ORDER.APPROVED` | capture la commande approuvée par le client |
+| `PAYMENT.CAPTURE.COMPLETED` | règle la facture ou la commande |
+| `PAYMENT.CAPTURE.REFUNDED` | enregistre un remboursement fait depuis le tableau de bord PayPal |
+| `CUSTOMER.DISPUTE.CREATED` | passe la facture en « contestée » |
+| `CUSTOMER.DISPUTE.RESOLVED` | litige gagné : la facture redevient réglée ; perdu : elle reste contestée, à traiter |
+
+**Un endpoint ou un webhook créé avant la prise en charge des remboursements et des litiges clos**
+(contrat 0.36.0) n'a pas `refund.created`, `refund.updated`, `charge.dispute.closed` côté Stripe,
+ni `PAYMENT.CAPTURE.REFUNDED` et `CUSTOMER.DISPUTE.RESOLVED` côté PayPal, s'il avait été créé avec
+une sélection d'événements plutôt qu'avec « tous ». Ouvrez-le chez la passerelle et ajoutez-les :
+l'instance ne peut pas le faire pour vous, et sans eux un remboursement fait depuis la passerelle
+laisse la facture locale réglée alors que l'argent est reparti. Un remboursement demandé depuis le
+back-office de l'instance n'est pas concerné, il est enregistré directement.
+
 ## Reverse proxy
 
 Par défaut, la pile démarre son propre reverse proxy (Caddy), qui prend les ports 80 et 443 et
