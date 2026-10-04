@@ -107,7 +107,25 @@ un MAJEUR.
   le thème. Le chemin part de la racine du thème, pas du gabarit qui l'écrit : en relatif, LiquidJS
   lève une erreur, le noyau retombe sur son écran React et la page reste parfaitement
   présentable — sans qu'une ligne du thème ne s'affiche, et sans que rien ne le signale.
+- **Fiche client en onglets** (vue d'ensemble, services, facturation, support, sécurité), avec un
+  bandeau « À traiter » (compte verrouillé, e-mail rejeté ou jamais vérifié, factures impayées, SLA
+  dépassé, risque élevé, double authentification absente), les tickets, sous-utilisateurs, moyens de
+  paiement et connexions récentes du client, des actions rapides, une chronologie filtrable et des
+  notes internes épinglables (`customers.notes.write`). Un cycle de facturation par abonnement :
+  période courante, prochaine échéance, résiliation programmée.
+- **Liste des clients** : filtres Revendeurs et Verrouillés, colonne et tri par impayé, recherche
+  par numéro de facture. **Liste des abonnements** : recherche, filtres par statut avec compteurs,
+  tri par échéance ou par client, résiliation programmée, menu d'actions par ligne et panneau de
+  création. **Catalogue** : l'arbre des catégories passe dans la page Produits (glisser-déposer,
+  renommer, masquer, supprimer), et le tableau change la catégorie d'un produit sur place.
 ### Changé
+- **L'écran Catalogue › Catégories disparaît** : l'arbre de la page Produits le remplace. Aucune
+  route d'API ne change.
+- Le formulaire de facture manuelle est replié sous la liste ; `/invoices?customer=<id>` le déplie
+  avec le client choisi. La console des tickets lit ses compteurs en un appel
+  (`GET /tickets/counts`, `support.tickets.read`) au lieu de cinq lectures de `GET /tickets`, qui
+  épuisaient le budget de la route (60 requêtes par minute pour toute l'instance) et faisaient
+  tomber la page en erreur.
 - **Le portail ne peut plus être affiché dans un cadre**, sauf par le panel
   (`Content-Security-Policy: frame-ancestors 'self' <WEB_ADMIN_URL>`). N'importe quel site pouvait
   jusqu'ici l'encadrer (détournement de clic). `WEB_ADMIN_URL` est désormais transmise au service
