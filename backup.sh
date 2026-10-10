@@ -2,19 +2,28 @@
 # Sauvegarde la base Postgres d'une instance en un fichier compressé horodaté, puis la copie
 # hors-site sur S3 (ou compatible S3 : MinIO, Backblaze B2, OVH...) si configuré.
 #
-# À lancer depuis le dossier qui contient le .env de l'instance :
+# À lancer depuis le dossier de l'instance (celui du .env, s'il y en a un) :
 #   - depuis les sources (ce dépôt), à la racine :        ./infra/backup.sh [dossier de sortie]
 #   - depuis le dépôt de déploiement (opbs-deploy) :      ./backup.sh [dossier de sortie]
 # Le fichier compose est résolu à côté du script (voir plus bas), pas depuis le répertoire courant.
+#
+# La sauvegarde ne contient PAS la clé de chiffrement de l'instance (CREDENTIALS_ENCRYPTION_KEY),
+# générée au premier démarrage et rangée hors de la base : sans elle, les identifiants chiffrés du
+# dump (modules, fournisseurs, SSO, webhooks, double authentification) sont illisibles. Elle ne
+# change jamais : l'exporter une fois, et la conserver ailleurs que les sauvegardes (gestionnaire
+# de mots de passe, coffre hors ligne) :
+#   ./backup.sh --export-key                 # l'affiche
+#   ./backup.sh --export-key cle-opbs.txt    # l'écrit dans un fichier lisible par vous seul
+# Une clé rangée à côté des dumps rendrait leur chiffrement inutile.
 #
 # Copie hors-site : renseigner dans .env
 #   BACKUP_S3_BUCKET=mon-bucket-backups
 #   BACKUP_S3_ENDPOINT_URL=https://s3.fr-par.scw.cloud   # vide = AWS S3
 # et exporter les identifiants standard de l'AWS CLI (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-# AWS_DEFAULT_REGION) dans l'environnement qui lance ce script — jamais dans .env, ce fichier finit
-# dans l'image Docker et les logs de commande. La rétention hors-site (ex: 30 jours) se configure
-# via une règle de cycle de vie côté bucket, pas ici : réimplémenter une purge S3 en bash est une
-# source classique de suppressions non voulues.
+# AWS_DEFAULT_REGION) dans l'environnement qui lance ce script — jamais dans .env, qui fournit les
+# réglages des conteneurs : une clé de sauvegarde n'a rien à y faire. La rétention hors-site (ex:
+# 30 jours) se configure via une règle de cycle de vie côté bucket, pas ici : réimplémenter une
+# purge S3 en bash est une source classique de suppressions non voulues.
 #
 # Exemple de cron (tous les jours à 3h, local conservé 14 jours) :
 #   0 3 * * * cd /path/to/opbs-deploy && ./backup.sh /var/backups/opbs && find /var/backups/opbs -name '*.sql.gz' -mtime +14 -delete
@@ -44,6 +53,24 @@ fi
 # restauration) sur la même machine — sauvegarder la mauvaise est plus coûteux que de le paramétrer.
 PROJECT="${OPBS_PROJECT:-opbs}"
 
+# `.env` est facultatif : passé seulement s'il existe, Compose refusant un `--env-file` absent.
+COMPOSE=(docker compose -p "$PROJECT" -f "$COMPOSE_FILE")
+if [ -f .env ]; then
+  COMPOSE+=(--env-file .env)
+fi
+
+if [ "${1:-}" = "--export-key" ]; then
+  KEY="$("${COMPOSE[@]}" run --rm --no-deps -T init-secrets print-key)"
+  if [ -n "${2:-}" ]; then
+    (umask 077 && printf '%s\n' "$KEY" > "$2")
+    echo "Clé de chiffrement écrite dans $2 (lisible par vous seul). Rangez-la hors de ce serveur." >&2
+  else
+    echo "Clé de chiffrement de l'instance — à conserver hors de ce serveur et hors des sauvegardes :" >&2
+    printf '%s\n' "$KEY"
+  fi
+  exit 0
+fi
+
 OUT_DIR="${1:-./backups}"
 mkdir -p "$OUT_DIR"
 
@@ -60,10 +87,10 @@ fi
 TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
 OUT_FILE="$OUT_DIR/opbs-$TIMESTAMP.sql.gz"
 
-docker compose -p "$PROJECT" -f "$COMPOSE_FILE" --env-file .env \
-  exec -T postgres pg_dump -U opbs --format=plain opbs | gzip > "$OUT_FILE"
+"${COMPOSE[@]}" exec -T postgres pg_dump -U opbs --format=plain opbs | gzip > "$OUT_FILE"
 
 echo "Sauvegarde écrite dans $OUT_FILE"
+echo "Rappel : la clé de chiffrement n'est pas dans cette sauvegarde (./backup.sh --export-key)."
 
 if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
   if ! command -v aws >/dev/null 2>&1; then

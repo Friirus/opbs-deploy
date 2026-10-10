@@ -65,6 +65,14 @@ status.{$DOMAIN:localhost} {
 
 {$DOMAIN:localhost} {
     tls {$TLS_MODE:internal}
+    # La création du premier administrateur passe par le panel (admin.<DOMAIN>/api/setup/bootstrap),
+    # qui joint l'API par son adresse interne : sa route directe n'a rien à faire sur le domaine
+    # public. Défense en profondeur seulement, le relais du panel restant public par nature : la
+    # vraie garde est le jeton d'installation (BootstrapService). Plus spécifique que /api/v1/*,
+    # ce `handle` passe avant lui.
+    handle /api/v1/auth/staff/bootstrap* {
+        respond 404
+    }
     # Seul /api/v1/* (préfixe global NestJS) va au backend : web-portal a ses propres routes
     # sous /api/* (login, checkout, orders, ...) qui doivent rester gérées par Next.js.
     handle /api/v1/* {
@@ -105,6 +113,10 @@ http:// {
 :443 {
     tls {$TLS_MODE:internal} {
         on_demand
+    }
+    # Même fermeture que sur le domaine principal, voir plus haut.
+    handle /api/v1/auth/staff/bootstrap* {
+        respond 404
     }
     handle /api/v1/* {
         reverse_proxy api:3001

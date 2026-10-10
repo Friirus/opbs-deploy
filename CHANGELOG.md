@@ -118,7 +118,48 @@ un MAJEUR.
   tri par échéance ou par client, résiliation programmée, menu d'actions par ligne et panneau de
   création. **Catalogue** : l'arbre des catégories passe dans la page Produits (glisser-déposer,
   renommer, masquer, supprimer), et le tableau change la catégorie d'un produit sur place.
+- **Installation en une commande** : `install.sh` (miroir `opbs-deploy`) vérifie Docker, récupère
+  les fichiers de déploiement, demande le domaine et l'adresse Let's Encrypt, contrôle le DNS des
+  trois noms, laisse de côté le Caddy fourni si les ports 80/443 sont pris, écrit lui-même le `.env`
+  (aucun secret), démarre l'instance puis affiche la clé de chiffrement à conserver et le lien de
+  l'assistant, jeton compris. Relancé, il ne régénère rien : c'est aussi la commande de mise à jour.
+  Mode sans terminal par variables (`OPBS_DOMAIN`, `OPBS_ACME_EMAIL`, `OPBS_KEY_FILE`…).
+- **Sauvegarde de la clé de chiffrement** : `backup.sh --export-key [fichier]` l'affiche ou l'écrit
+  (lisible par son seul propriétaire) ; elle ne change jamais et ne va jamais dans un dump.
+  `restore.sh --key-file <clé> [dump]` la restaure sur un nouveau serveur, puis attend que l'API
+  redevienne saine. `backup.sh` et `restore.sh` n'exigent plus de `.env`.
+- **`reset-2fa`** : `docker compose run --rm api node dist/cli/reset-2fa.js <email>` (`--client`
+  pour un client final) désactive la double authentification d'un compte dont le code ne peut plus
+  être vérifié — clé perdue, ou unique administrateur sans son téléphone —, lève son verrouillage et
+  l'inscrit au journal d'audit. L'application seule ne le permet pas : désactiver la double
+  authentification y exige un code valide.
+- **Assistant d'installation : e-mail sortant et encaissement.** Deux étapes, après la création de
+  l'administrateur et sous sa session, règlent le module SMTP et une passerelle de paiement choisie
+  parmi les modules `payment` installés, avec l'adresse de notification à déclarer chez elle. Les
+  deux sont passables. Un e-mail d'essai part vers l'adresse de l'administrateur
+  (`POST /settings/email-test`, `settings.write`) avec des délais courts, et la raison d'un échec
+  s'affiche telle quelle — sans module SMTP actif, l'essai échoue au lieu de « réussir » en journal.
 ### Changé
+- **MAJEUR : les secrets de l'instance ne vont plus dans `.env`.** Mot de passe Postgres,
+  `CREDENTIALS_ENCRYPTION_KEY`, secrets JWT et jeton d'installation sont générés au premier
+  démarrage par le service `init-secrets`, dans deux volumes hors de la base (`secrets_db`,
+  `secrets_app`) que l'API et le worker chargent par leur entrypoint. Une instance existante n'a
+  rien à faire au moment de la mise à jour : au premier démarrage, les valeurs de son `.env`
+  initialisent les volumes, qui font foi ensuite — ces lignes peuvent alors quitter le fichier.
+  Une installation neuve démarre sans aucun `.env`.
+- **MAJEUR : le reverse proxy fourni démarre par défaut.** `COMPOSE_PROFILES=bundled-proxy`
+  disparaît ; `OPBS_BUNDLED_PROXY=0` retire Caddy quand nginx, Apache ou Traefik occupent déjà les
+  ports 80/443, y compris un Caddy déjà lancé (un profil désactivé le laissait tourner). Une
+  instance qui avait vidé `COMPOSE_PROFILES` doit poser `OPBS_BUNDLED_PROXY=0`, sinon Caddy
+  réclame ces ports au démarrage.
+- **L'API et le worker refusent de démarrer sur un secret absent ou faible** — clé qui ne décode
+  pas en 32 octets, secret JWT manquant, de moins de 32 caractères ou commun à deux contextes —
+  au lieu d'échouer au premier usage. Un témoin chiffré (`credentials_key_checks`) refuse aussi une
+  clé qui n'est pas celle de la base, procédure à l'appui dans le journal ;
+  `OPBS_ACCEPT_NEW_CREDENTIALS_KEY=1` accepte consciemment une nouvelle clé. Le worker démarre
+  désormais après l'API.
+- **`pnpm dev:env`** complète le `.env` de développement (secrets générés, `DATABASE_URL`), et
+  `pnpm dev` le lit enfin depuis la racine du dépôt pour l'API et le worker.
 - **L'écran Catalogue › Catégories disparaît** : l'arbre de la page Produits le remplace. Aucune
   route d'API ne change.
 - Le formulaire de facture manuelle est replié sous la liste ; `/invoices?customer=<id>` le déplie
@@ -131,6 +172,13 @@ un MAJEUR.
   jusqu'ici l'encadrer (détournement de clic). `WEB_ADMIN_URL` est désormais transmise au service
   `web-portal` par `infra/docker-compose.yml`, avec la même valeur par défaut que pour l'API : aucune
   action requise sur une installation standard.
+### Supprimé
+- **MAJEUR : `SMTP_*`, `STRIPE_SECRET_KEY` et `STRIPE_WEBHOOK_SECRET` ne sont plus lues.** SMTP et
+  Stripe sont des modules réglés au panel depuis la 1.0.0 ; les services qui recopiaient ces
+  variables en base au démarrage (`SmtpAdoptionService`, `StripeAdoptionService`) disparaissent
+  avec elles. Une instance démarrée au moins une fois en 1.0.0 a déjà sa configuration en base.
+  Sinon, la saisir dans Paramètres › Extensions avant la mise à jour : sans elle, les e-mails ne
+  sont plus que journalisés et le paiement en ligne s'arrête.
 ### Corrigé
 - **`pnpm check-mirrors` ne regardait plus qu'une partie des fichiers.** Son contrôle
   `LocalizedText` retirait les littéraux de chaîne **avant** les commentaires : un backtick écrit
@@ -156,6 +204,21 @@ un MAJEUR.
   `AuthShell` injectait l'en-tête et le pied en HTML brut : le sélecteur de langue et le bouton de
   consentement qu'un thème y plaçait n'étaient jamais montés (emplacement vide, rien en console), et
   le repli du sélecteur s'ajoutait sans condition — donc en double.
+- **Le badge « SMTP configuré » de Paramètres › E-mails dit enfin vrai.** Il lisait `SMTP_HOST`,
+  que l'envoi ne lit plus : un serveur réglé au panel s'affichait « non configuré ». Il suit
+  désormais le module `smtp`.
+- **L'assistant d'installation affiche les refus.** L'étape Pays et fiscalité passait à la suite
+  même quand l'enregistrement était refusé ; le relais `/api/settings` changeait un refus en 500,
+  et celui de la création d'administrateur affichait le corps JSON brut de l'API.
+
+### Sécurité
+- **Jeton d'installation.** Le premier visiteur de `/setup` après le démarrage devenait
+  administrateur de l'instance, et des requêtes simultanées pouvaient en créer plusieurs. La
+  création du premier administrateur exige désormais le jeton d'installation (`SETUP_TOKEN`),
+  généré au premier démarrage et affiché dans le journal de l'API tant qu'aucun compte n'existe ;
+  il est comparé en temps constant, la création se fait sous un verrou consultatif Postgres, est
+  limitée à 5 essais par minute et inscrite au journal d'audit. Le reverse proxy fourni ferme en
+  outre la route directe de l'API sur le domaine public.
 
 ## [1.0.0] - 2026-09-06
 

@@ -7,22 +7,50 @@
 # de docker-compose.yml : `pnpm check-mirrors` compare les deux fichiers et échoue si l'un ajoute
 # une variable que l'autre n'a pas.
 #
-# Utilisation, depuis le dossier qui porte ce fichier et le .env de l'instance (la racine du dépôt
-# de déploiement `opbs-deploy`, ou `infra/` dans le dépôt source) :
-#   OPBS_VERSION=1.0.0 docker compose -p opbs -f docker-compose.images.yml --env-file .env up -d
+# Utilisation : `bash install.sh` (pose le .env, démarre, affiche le lien d'installation), ou à la
+# main, depuis le dossier qui porte ce fichier (la racine du dépôt de déploiement `opbs-deploy`) —
+# Compose y lit seul le .env facultatif posé à côté :
+#   OPBS_VERSION=1.0.0 docker compose -p opbs -f docker-compose.images.yml up -d
 #
 # `OPBS_VERSION` doit correspondre à un tag publié par `.github/workflows/release-images.yml`
 # (déclenché par un tag git `vX.Y.Z`) ; par défaut `latest` suit la dernière publication sur main.
 services:
+  # Voir docker-compose.yml : secrets de l'instance générés au premier démarrage, dans deux volumes
+  # hors de Postgres ; jamais réécrits, jamais régénérés face à une base existante. En root, sans
+  # réseau.
+  init-secrets:
+    image: ghcr.io/friirus/opbs-api:${OPBS_VERSION:-latest}
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    entrypoint: ["node", "dist/cli/init-secrets.js"]
+    # Reprise d'un .env existant : une valeur fournie ici n'initialise qu'un fichier absent.
+    environment:
+      POSTGRES_PASSWORD:
+      CREDENTIALS_ENCRYPTION_KEY:
+      JWT_STAFF_SECRET:
+      JWT_CUSTOMER_SECRET:
+      JWT_IMPERSONATION_EXCHANGE_SECRET:
+      JWT_SSO_TICKET_SECRET:
+      SETUP_TOKEN:
+    volumes:
+      - secrets_db:/run/opbs-secrets/db
+      - secrets_app:/run/opbs-secrets/app
+      - postgres_data:/pgdata:ro
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    depends_on:
+      init-secrets:
+        condition: service_completed_successfully
     environment:
       POSTGRES_USER: opbs
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opbs}
+      POSTGRES_PASSWORD_FILE: /run/opbs-secrets/db/postgres_password
       POSTGRES_DB: opbs
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - secrets_db:/run/opbs-secrets/db:ro
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
@@ -48,45 +76,36 @@ services:
     image: ghcr.io/friirus/opbs-api:${OPBS_VERSION:-latest}
     restart: unless-stopped
     depends_on:
+      init-secrets:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://opbs:${POSTGRES_PASSWORD:-opbs}@postgres:5432/opbs?schema=public
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY}
-      JWT_STAFF_SECRET: ${JWT_STAFF_SECRET}
-      JWT_CUSTOMER_SECRET: ${JWT_CUSTOMER_SECRET}
-      JWT_IMPERSONATION_EXCHANGE_SECRET: ${JWT_IMPERSONATION_EXCHANGE_SECRET}
-      JWT_SSO_TICKET_SECRET: ${JWT_SSO_TICKET_SECRET}
+      OPBS_ACCEPT_NEW_CREDENTIALS_KEY:
       WEB_PORTAL_URL: https://${DOMAIN:-localhost}
       WEB_ADMIN_URL: https://admin.${DOMAIN:-localhost}
       # Même dérivation que la route `status.<DOMAIN>` du Caddyfile : lue par les thèmes
       # (`ThemeShellContext.statusPageUrl`) pour un lien de pied de page, jamais par autre chose.
       STATUS_PAGE_URL: https://status.${DOMAIN:-localhost}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURE: ${SMTP_SECURE:-false}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: ${SMTP_FROM:-no-reply@example.test}
       EXTENSIONS_DIR: /extensions
-      ATTACHMENTS_S3_BUCKET: ${ATTACHMENTS_S3_BUCKET}
+      ATTACHMENTS_S3_BUCKET: ${ATTACHMENTS_S3_BUCKET:-}
       ATTACHMENTS_S3_REGION: ${ATTACHMENTS_S3_REGION:-eu-west-3}
-      ATTACHMENTS_S3_ACCESS_KEY_ID: ${ATTACHMENTS_S3_ACCESS_KEY_ID}
-      ATTACHMENTS_S3_SECRET_ACCESS_KEY: ${ATTACHMENTS_S3_SECRET_ACCESS_KEY}
-      ATTACHMENTS_S3_ENDPOINT_URL: ${ATTACHMENTS_S3_ENDPOINT_URL}
+      ATTACHMENTS_S3_ACCESS_KEY_ID: ${ATTACHMENTS_S3_ACCESS_KEY_ID:-}
+      ATTACHMENTS_S3_SECRET_ACCESS_KEY: ${ATTACHMENTS_S3_SECRET_ACCESS_KEY:-}
+      ATTACHMENTS_S3_ENDPOINT_URL: ${ATTACHMENTS_S3_ENDPOINT_URL:-}
     volumes:
       - ${EXTENSIONS_DIR:-./extensions}:/extensions:ro
+      - secrets_db:/run/opbs-secrets/db:ro
+      - secrets_app:/run/opbs-secrets/app:ro
     expose:
       - "3001"
     # Publié sur la boucle locale, jamais sur 0.0.0.0 : c'est ce qui permet à un reverse proxy
-    # installé sur l'hôte de router vers l'application quand le profil `bundled-proxy` est
-    # désactivé. Sans effet quand le Caddy fourni tourne — il joint les conteneurs par le réseau
+    # installé sur l'hôte de router vers l'application quand le Caddy fourni est retiré
+    # (OPBS_BUNDLED_PROXY=0). Sans effet quand il tourne — il joint les conteneurs par le réseau
     # interne du projet, pas par ces ports.
     ports:
       - "127.0.0.1:3001:3001"
@@ -101,36 +120,34 @@ services:
     image: ghcr.io/friirus/opbs-worker:${OPBS_VERSION:-latest}
     restart: unless-stopped
     depends_on:
+      init-secrets:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      api:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://opbs:${POSTGRES_PASSWORD:-opbs}@postgres:5432/opbs?schema=public
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURE: ${SMTP_SECURE:-false}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: ${SMTP_FROM:-no-reply@example.test}
-      IMAP_HOST: ${IMAP_HOST}
+      IMAP_HOST: ${IMAP_HOST:-}
       IMAP_PORT: ${IMAP_PORT:-993}
       IMAP_SECURE: ${IMAP_SECURE:-true}
-      IMAP_USER: ${IMAP_USER}
-      IMAP_PASSWORD: ${IMAP_PASSWORD}
+      IMAP_USER: ${IMAP_USER:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
       IMAP_MAILBOX: ${IMAP_MAILBOX:-INBOX}
       STATUS_SNAPSHOT_PATH: /snapshot/status.json
       EXTENSIONS_DIR: /extensions
-      ATTACHMENTS_S3_BUCKET: ${ATTACHMENTS_S3_BUCKET}
+      ATTACHMENTS_S3_BUCKET: ${ATTACHMENTS_S3_BUCKET:-}
       ATTACHMENTS_S3_REGION: ${ATTACHMENTS_S3_REGION:-eu-west-3}
-      ATTACHMENTS_S3_ACCESS_KEY_ID: ${ATTACHMENTS_S3_ACCESS_KEY_ID}
-      ATTACHMENTS_S3_SECRET_ACCESS_KEY: ${ATTACHMENTS_S3_SECRET_ACCESS_KEY}
-      ATTACHMENTS_S3_ENDPOINT_URL: ${ATTACHMENTS_S3_ENDPOINT_URL}
+      ATTACHMENTS_S3_ACCESS_KEY_ID: ${ATTACHMENTS_S3_ACCESS_KEY_ID:-}
+      ATTACHMENTS_S3_SECRET_ACCESS_KEY: ${ATTACHMENTS_S3_SECRET_ACCESS_KEY:-}
+      ATTACHMENTS_S3_ENDPOINT_URL: ${ATTACHMENTS_S3_ENDPOINT_URL:-}
     volumes:
       - ${EXTENSIONS_DIR:-./extensions}:/extensions:ro
+      - secrets_db:/run/opbs-secrets/db:ro
+      - secrets_app:/run/opbs-secrets/app:ro
       - status_snapshot:/snapshot
     healthcheck:
       test: ["CMD", "node", "dist/healthcheck.js"]
@@ -181,9 +198,10 @@ services:
   reverse-proxy:
     image: caddy:2-alpine
     restart: unless-stopped
-    # Voir docker-compose.yml : profil activé par défaut via COMPOSE_PROFILES dans .env.example,
-    # à vider quand l'hébergeur fournit son propre reverse proxy.
-    profiles: ["bundled-proxy"]
+    # Voir docker-compose.yml : démarré par défaut, OPBS_BUNDLED_PROXY=0 le retire quand
+    # l'hébergeur fournit son propre reverse proxy.
+    deploy:
+      replicas: ${OPBS_BUNDLED_PROXY:-1}
     depends_on:
       - api
       - web-admin
@@ -202,6 +220,8 @@ services:
 
 volumes:
   postgres_data:
+  secrets_db:
+  secrets_app:
   redis_data:
   caddy_data:
   caddy_config:
