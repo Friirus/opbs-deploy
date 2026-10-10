@@ -180,6 +180,18 @@ un MAJEUR.
   Sinon, la saisir dans Paramètres › Extensions avant la mise à jour : sans elle, les e-mails ne
   sont plus que journalisés et le paiement en ligne s'arrête.
 ### Corrigé
+- **Les options configurables d'un client facturé hors devise de base se renouvelaient au mauvais
+  prix.** À la commande, la facture convertissait le delta d'une option dans la devise du client,
+  mais la sélection mémorisait la valeur du catalogue, en devise de base ; le renouvellement (et le
+  renouvellement anticipé, et le total « prochaine facture » de la fiche client) l'ajoutait tel
+  quel au prix de l'abonnement, déjà converti : 5,00 € d'option devenaient 5,00 $ au lieu de 5,50 $
+  à 1,10, dès la deuxième échéance. Le montant converti est désormais figé sur la sélection à la
+  commande, comme `unitPriceCents` et comme les add-ons, et relu tel quel ; la valeur du catalogue
+  est gardée à part (`baseCurrencyPriceDeltaCents`). Une migration reprend les sélections
+  existantes des abonnements en devise étrangère : le montant de leur toute première facture
+  quand il est identifiable, sinon le rapport entre le prix converti de l'abonnement et son prix
+  de base. Leur prochaine facture de renouvellement reprend donc ce montant ; les factures déjà
+  émises avec l'ancien montant ne sont pas corrigées, une régularisation par avoir reste à la main.
 - **`pnpm check-mirrors` ne regardait plus qu'une partie des fichiers.** Son contrôle
   `LocalizedText` retirait les littéraux de chaîne **avant** les commentaires : un backtick écrit
   dans un commentaire — `` `settings` `` dans une phrase, ce que font tous les en-têtes de ce dépôt
